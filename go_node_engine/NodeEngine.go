@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"go_node_engine/jobs"
 	"go_node_engine/logger"
 	"go_node_engine/model"
@@ -9,6 +10,7 @@ import (
 	"go_node_engine/requests"
 	"go_node_engine/virtualization"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -31,9 +33,14 @@ func main() {
 	handshakeResult := clusterHandshake()
 
 	//enable overlay network if required
+	cmd := exec.Command("NetManager", "-p", fmt.Sprintf("%d", *overlayNetwork))
 	if *overlayNetwork > 0 {
 		model.EnableOverlay(*overlayNetwork)
-		err := requests.RegisterSelfToNetworkComponent()
+		err := cmd.Start()
+		if err != nil {
+			logger.ErrorLogger().Fatalf("Unable to startup NetManager: %v", err)
+		}
+		err = requests.RegisterSelfToNetworkComponent()
 		if err != nil {
 			logger.ErrorLogger().Fatalf("Unable to register to NetManager: %v", err)
 		}
@@ -52,6 +59,13 @@ func main() {
 	signal.Notify(termination, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 	select {
 	case ossignal := <-termination:
+		//terminate NetManager if needed
+		if *overlayNetwork > 0 {
+			err := cmd.Process.Signal(syscall.SIGTERM)
+			if err != nil {
+				fmt.Println("Error terminating binary B:", err)
+			}
+		}
 		logger.InfoLogger().Printf("Terminating the NodeEngine, signal:%v", ossignal)
 	}
 }
